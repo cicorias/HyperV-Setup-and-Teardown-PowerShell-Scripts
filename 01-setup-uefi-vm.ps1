@@ -11,47 +11,50 @@
 #>
 
 [CmdletBinding()]param(
-    [string]$VMName = 'PXE-UEFI-Client',
     [int]$CPUCount = 2,
     [int]$MemoryGB = 2,
     [int]$VhdSizeGB = 20,
-    [string]$VhdFileName = 'disk.vhdx',
     [string]$SwitchName = 'PXENetwork',
-    [ValidateSet('On','Off')][string]$SecureBoot = 'Off'
+    [ValidateSet('On','Off')][string]$SecureBoot = 'Off',
+    [switch]$Start
 )
 
 $ErrorActionPreference = 'Stop'
 try { Import-Module Hyper-V -ErrorAction SilentlyContinue } catch {}
 $ErrorActionPreference = 'Continue'
 
-# Resolve script root
+# Random suffix function
+function New-RandomSuffix {
+    param([int]$Length = 3)
+    $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    -join (1..$Length | ForEach-Object { $chars[(Get-Random -Max $chars.Length)] })
+}
+
+$baseName = 'PXE-CLIENT-UEFI'
+for ($i=0; $i -lt 10; $i++) {
+    $suffix = New-RandomSuffix
+    $VMName = "$baseName-$suffix"
+    if (-not (Get-VM -Name $VMName -ErrorAction SilentlyContinue)) { break }
+    if ($i -eq 9) { throw "Could not generate unique VM name after 10 attempts." }
+}
+
+# Resolve script root and per-VM VHD path
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).ProviderPath }
 $ArchiveDir = Join-Path $ScriptRoot 'archive'
 if (-not (Test-Path $ArchiveDir)) { New-Item -ItemType Directory -Path $ArchiveDir | Out-Null }
+$VhdFileName = "$VMName.vhdx"
 $VhdPath = Join-Path $ArchiveDir $VhdFileName
 
 Write-Host "[INFO] Preparing UEFI PXE VM '$VMName' (Gen2)" -ForegroundColor Cyan
 
 # Create VM if needed
 $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-if (-not $vm) {
-    New-VM -Name $VMName -Generation 2 -MemoryStartupBytes ($MemoryGB * 1GB) -SwitchName $SwitchName | Out-Null
-    $vm = Get-VM -Name $VMName
-    Write-Host "[OK] VM created." -ForegroundColor Green
-} else {
-    Write-Host "[SKIP] VM already exists." -ForegroundColor Yellow
-    if ($vm.Generation -ne 2) {
-        Write-Host "[WARN] VM is Generation $($vm.Generation); firmware settings will not apply." -ForegroundColor Red
-    }
-}
+New-VM -Name $VMName -Generation 2 -MemoryStartupBytes ($MemoryGB * 1GB) -SwitchName $SwitchName | Out-Null
+$vm = Get-VM -Name $VMName
+Write-Host "[OK] VM created: $VMName" -ForegroundColor Green
 
 # Disable automatic checkpoints
-try {
-    Set-VM -Name $VMName -AutomaticCheckpointsEnabled $false -ErrorAction Stop
-    Write-Host "[OK] Automatic checkpoints disabled." -ForegroundColor Green
-} catch {
-    Write-Host "[WARN] Unable to disable automatic checkpoints: $($_.Exception.Message)" -ForegroundColor Yellow
-}
+try { Set-VM -Name $VMName -AutomaticCheckpointsEnabled $false -ErrorAction Stop; Write-Host "[OK] Automatic checkpoints disabled." -ForegroundColor Green } catch { Write-Host "[WARN] Unable to disable automatic checkpoints: $($_.Exception.Message)" -ForegroundColor Yellow }
 
 # CPU
 Set-VMProcessor -VMName $VMName -Count $CPUCount
@@ -103,5 +106,11 @@ try {
 
 Write-Host "[DONE] UEFI PXE VM setup complete." -ForegroundColor Cyan
 
-# Suggest start command
-Write-Host "Start with: Start-VM -Name '$VMName'" -ForegroundColor DarkCyan
+if ($Start) {
+    try { Start-VM -Name $VMName -ErrorAction Stop; Write-Host "[OK] VM started: $VMName" -ForegroundColor Green } catch { Write-Host "[FAIL] Start failed: $($_.Exception.Message)" -ForegroundColor Red }
+} else {
+    Write-Host "[INFO] Not started. Run: Start-VM -Name '$VMName'" -ForegroundColor DarkCyan
+}
+
+# Emit object for automation
+[pscustomobject]@{ VMName = $VMName; VhdPath = $VhdPath }

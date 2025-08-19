@@ -4,66 +4,48 @@
  Usage: Run in elevated PowerShell. Adjust variables if you changed names in the setup script.
 #>
 
-$vmName      = 'PXE-UEFI-Client'
-$vhdFileName = 'disk.vhdx'
+$vmPrefix = 'PXE-CLIENT-'
 
-# Resolve script root first (avoid inline if-in-expression parsing issues)
+# Resolve script root and archive dir
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).ProviderPath }
 $archiveDir = Join-Path -Path $scriptRoot -ChildPath 'archive'
-$vhdPath    = Join-Path -Path $archiveDir -ChildPath $vhdFileName
 
-Write-Host "Cleanup starting for VM '$vmName'" -ForegroundColor Cyan
+Write-Host "Cleanup starting for VMs with prefix '$vmPrefix'" -ForegroundColor Cyan
 
-# Remove VM if it exists
-$vm = Get-VM -Name $vmName -ErrorAction SilentlyContinue
-if ($vm) {
-    # Stop if running
-    if ($vm.State -ne 'Off') {
-        Write-Host "Stopping VM..." -ForegroundColor Yellow
-        Stop-VM -Name $vmName -Force -TurnOff -ErrorAction SilentlyContinue
-    }
-
-    # Remove snapshots (they can block deletion of disk files)
-    $snapshots = Get-VMSnapshot -VMName $vmName -ErrorAction SilentlyContinue
-    if ($snapshots) {
-        Write-Host "Removing $($snapshots.Count) snapshot(s)..." -ForegroundColor Yellow
-        $snapshots | Remove-VMSnapshot -Confirm:$false -ErrorAction SilentlyContinue
-    }
-
-    Write-Host "Removing VM..." -ForegroundColor Yellow
-    Remove-VM -Name $vmName -Force -ErrorAction SilentlyContinue
-
-    if (-not (Get-VM -Name $vmName -ErrorAction SilentlyContinue)) {
-        Write-Host "VM removed." -ForegroundColor Green
-    } else {
-        Write-Host "VM removal may have failed; verify manually." -ForegroundColor Red
-    }
+$vms = Get-VM -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "$vmPrefix*" }
+if (-not $vms) {
+    Write-Host "No VMs found with prefix." -ForegroundColor Yellow
 } else {
-    Write-Host "VM '$vmName' not found; skipping VM removal." -ForegroundColor Yellow
-}
-
-# Remove VHD if present
-if (Test-Path -LiteralPath $vhdPath) {
-    try {
-        Remove-Item -LiteralPath $vhdPath -Force
-        Write-Host "Deleted VHD: $vhdPath" -ForegroundColor Green
-    } catch {
-        Write-Host "Failed to delete VHD ($vhdPath): $($_.Exception.Message)" -ForegroundColor Red
+    foreach ($vm in $vms) {
+        Write-Host "Processing VM '$($vm.Name)'" -ForegroundColor Cyan
+        if ($vm.State -ne 'Off') {
+            Write-Host "  Stopping..." -ForegroundColor Yellow
+            Stop-VM -Name $vm.Name -Force -TurnOff -ErrorAction SilentlyContinue
+        }
+        $snaps = Get-VMSnapshot -VMName $vm.Name -ErrorAction SilentlyContinue
+        if ($snaps) { Write-Host "  Removing $($snaps.Count) snapshot(s)" -ForegroundColor Yellow; $snaps | Remove-VMSnapshot -Confirm:$false -ErrorAction SilentlyContinue }
+        # Collect attached VHD paths before removal
+        $diskPaths = Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue
+        Write-Host "  Removing VM" -ForegroundColor Yellow
+        Remove-VM -Name $vm.Name -Force -ErrorAction SilentlyContinue
+        foreach ($dp in $diskPaths) {
+            if ($dp -and (Test-Path -LiteralPath $dp)) {
+                # Only delete if inside archive directory (safety)
+                if ($dp.StartsWith($archiveDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    try { Remove-Item -LiteralPath $dp -Force; Write-Host "    Deleted VHD: $dp" -ForegroundColor Green } catch { Write-Host "    Failed VHD delete: $dp :: $($_.Exception.Message)" -ForegroundColor Red }
+                } else {
+                    Write-Host "    Skipping VHD outside archive: $dp" -ForegroundColor DarkYellow
+                }
+            }
+        }
     }
-} else {
-    Write-Host "VHD not found at $vhdPath; skipping." -ForegroundColor Yellow
 }
 
 # Remove archive directory if empty
 if (Test-Path -LiteralPath $archiveDir) {
-    $remaining = Get-ChildItem -LiteralPath $archiveDir -Force | Where-Object { -not $_.PSIsContainer }
+    $remaining = Get-ChildItem -LiteralPath $archiveDir -Force -File -ErrorAction SilentlyContinue
     if (-not $remaining) {
-        try {
-            Remove-Item -LiteralPath $archiveDir -Force
-            Write-Host "Removed empty archive directory: $archiveDir" -ForegroundColor Green
-        } catch {
-            Write-Host "Archive directory not removed: $($_.Exception.Message)" -ForegroundColor Yellow
-        }
+        try { Remove-Item -LiteralPath $archiveDir -Force; Write-Host "Removed empty archive directory: $archiveDir" -ForegroundColor Green } catch { Write-Host "Archive directory not removed: $($_.Exception.Message)" -ForegroundColor Yellow }
     }
 }
 
