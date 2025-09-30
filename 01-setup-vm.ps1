@@ -15,7 +15,7 @@
 		[switch]$UEFI = $true,
 		[int]$CPUCount = 2,
 		[int]$MemoryGB = 2,
-		[int]$VhdSizeGB = 20,
+		[int]$VhdSizeGB = 100,
 		[string]$SwitchName = 'PXENetwork',
 		[ValidateSet('On','Off')][string]$SecureBoot = 'Off',
 		[switch]$Start
@@ -64,6 +64,18 @@ Write-Host "VM '$vmName' created." -ForegroundColor Green
 
 # Disable automatic checkpoints (idempotent)
 try { Set-VM -Name $vmName -AutomaticCheckpointsEnabled $false -ErrorAction Stop; Write-Host "Automatic checkpoints disabled." -ForegroundColor Green } catch { Write-Host "Could not disable automatic checkpoints: $($_.Exception.Message)" -ForegroundColor Yellow }
+
+
+# set nested virtualization if supported
+if ($CPUCount -ge 2 -and $generation -eq 2) {
+	try {
+		Set-VMProcessor -VMName $vmName -ExposeVirtualizationExtensions $true -ErrorAction Stop
+		Write-Host "Nested virtualization enabled." -ForegroundColor Green
+	} catch { Write-Host "Could not enable nested virtualization: $($_.Exception.Message)" -ForegroundColor Yellow }
+} else {
+	if ($generation -eq 1) { Write-Host "Nested virtualization not supported on Gen1 VMs." -ForegroundColor DarkCyan }
+	if ($CPUCount -lt 2) { Write-Host "Nested virtualization requires at least 2 vCPUs." -ForegroundColor DarkCyan }
+}
 
 # Configure processor count
 Set-VMProcessor -VMName $vmName -Count $CPUCount
