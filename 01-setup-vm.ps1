@@ -15,7 +15,7 @@
 		[switch]$UEFI = $true,
 		[int]$CPUCount = 2,
 		[int]$MemoryGB = 2,
-		[int]$VhdSizeGB = 100,
+		[int]$VhdSizeGB = 200,
 		[string]$SwitchName = 'PXENetwork',
 		[ValidateSet('On','Off')][string]$SecureBoot = 'Off',
 		[switch]$Start,
@@ -119,8 +119,8 @@ if ($UEFI) {
 		$nicForBoot = Get-VMNetworkAdapter -VMName $vmName | Select-Object -First 1
 		$diskForBoot = Get-VMHardDiskDrive -VMName $vmName | Where-Object { $_.Path -ieq $vhdPath } | Select-Object -First 1
 		if ($nicForBoot -and $diskForBoot) {
-			Set-VMFirmware -VMName $vmName -EnableSecureBoot $secureBootState -BootOrder $nicForBoot, $diskForBoot
-			Write-Host "Firmware configured: SecureBoot=$secureBootState; BootOrder=NIC then Disk" -ForegroundColor Green
+			Set-VMFirmware -VMName $vmName -EnableSecureBoot $secureBootState -BootOrder $diskForBoot, $nicForBoot
+			Write-Host "Firmware configured: SecureBoot=$secureBootState; BootOrder=DISK then NIC" -ForegroundColor Green
 		} else { Write-Host "Skipping firmware config (NIC or Disk unresolved)." -ForegroundColor Yellow }
 	} catch { Write-Host "Firmware configuration skipped/failed: $($_.Exception.Message)" -ForegroundColor Red }
 } else {
