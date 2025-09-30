@@ -27,7 +27,39 @@ if (-not $vms) {
         # Collect attached VHD paths before removal
         $diskPaths = Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue
         Write-Host "  Removing VM" -ForegroundColor Yellow
-        Remove-VM -Name $vm.Name -Force -ErrorAction SilentlyContinue
+        
+        # Attempt to remove the VM
+        try {
+            Remove-VM -Name $vm.Name -Force -ErrorAction Stop
+        }
+        catch {
+            Write-Host "    Remove-VM failed: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "    Attempting hard kill of VM worker process..." -ForegroundColor Yellow
+            
+            # Get the VM's GUID
+            $vmId = $vm.Id
+            
+            # Find the worker process (vmwp.exe) tied to this VM
+            $vmwp = Get-WmiObject Win32_Process -Filter "Name = 'vmwp.exe'" |
+                Where-Object { $_.CommandLine -match $vmId }
+            
+            if ($vmwp) {
+                Write-Host "    Killing VM process for $($vm.Name) (PID: $($vmwp.ProcessId))" -ForegroundColor Yellow
+                Stop-Process -Id $vmwp.ProcessId -Force
+                Start-Sleep -Seconds 2
+                
+                # Retry Remove-VM after killing the process
+                try {
+                    Remove-VM -Name $vm.Name -Force -ErrorAction Stop
+                    Write-Host "    VM removed successfully after process kill" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "    Remove-VM still failed after process kill: $($_.Exception.Message)" -ForegroundColor Red
+                }
+            } else {
+                Write-Host "    No vmwp.exe process found for VM $($vm.Name)" -ForegroundColor Yellow
+            }
+        }
         foreach ($dp in $diskPaths) {
             if ($dp -and (Test-Path -LiteralPath $dp)) {
                 # Only delete if inside archive directory (safety)
