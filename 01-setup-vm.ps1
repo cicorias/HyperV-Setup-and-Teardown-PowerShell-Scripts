@@ -18,7 +18,8 @@
 		[int]$VhdSizeGB = 100,
 		[string]$SwitchName = 'PXENetwork',
 		[ValidateSet('On','Off')][string]$SecureBoot = 'Off',
-		[switch]$Start
+		[switch]$Start,
+		[switch]$NestedVirtualization = $true
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,7 +68,7 @@ try { Set-VM -Name $vmName -AutomaticCheckpointsEnabled $false -ErrorAction Stop
 
 
 # set nested virtualization if supported
-if ($CPUCount -ge 2 -and $generation -eq 2) {
+if ($NestedVirtualization -and $CPUCount -ge 2 -and $generation -eq 2) {
 	try {
 		Set-VMProcessor -VMName $vmName -ExposeVirtualizationExtensions $true -ErrorAction Stop
 		Write-Host "Nested virtualization enabled." -ForegroundColor Green
