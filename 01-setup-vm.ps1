@@ -133,5 +133,6 @@ if ($Start) {
 	try { Start-VM -Name $vmName -ErrorAction Stop; Write-Host "VM started: $vmName" -ForegroundColor Green } catch { Write-Host "Failed to start VM: $($_.Exception.Message)" -ForegroundColor Red }
 } else { Write-Host "(Not started) Use: Start-VM -Name $vmName" -ForegroundColor DarkCyan }
 
-[pscustomobject]@{ VMName = $vmName; VhdPath = $vhdPath; UEFI = $UEFI; Generation = $generation }
+# Output object with Name property for pipeline compatibility with Start-VM
+[pscustomobject]@{ Name = $vmName; VMName = $vmName; VhdPath = $vhdPath; UEFI = $UEFI; Generation = $generation }
 
