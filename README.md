@@ -160,6 +160,14 @@ Cleanup complete.
 
 ## Common Use Cases
 
+### 0. Run and Start...
+
+Pipe it to another PS script..
+
+```powershell
+.\01-setup-vm.ps1 | Start-VM
+```
+
 ### 1. Quick PXE Testing Environment
 ```powershell
 # Create a VM for PXE boot testing
